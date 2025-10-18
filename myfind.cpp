@@ -31,3 +31,7 @@ static string to_lower(string s) {
         ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
     return s;
 }
+
+static bool names_equal(const string& a, const string& b, bool insensitive) {
+    return insensitive ? (to_lower(a) == to_lower(b)) : (a ==b );
+}
