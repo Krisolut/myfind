@@ -25,3 +25,9 @@ static void usage (const char* prog) {
         "  -R  recursive search\n"
         "  -i  case-insensitive search\n", prog);
 }
+
+static string to_lower(string s) {
+    for (auto &ch : s)
+        ch = static_cast<char>(tolower(static_cast<unsigned char>(ch)));
+    return s;
+}
