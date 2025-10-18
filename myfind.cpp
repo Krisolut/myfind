@@ -33,5 +33,24 @@ static string to_lower(string s) {
 }
 
 static bool names_equal(const string& a, const string& b, bool insensitive) {
-    return insensitive ? (to_lower(a) == to_lower(b)) : (a ==b );
+    return insensitive ? (to_lower(a) == to_lower(b)) : (a == b);
+}
+
+static void child_search() {
+
+}
+
+int main (int argc, char* argv[]) {
+    bool opt_recursive = false;
+    bool opt_insensitive = false;
+    opterr = 0;
+
+    int c;
+    while ((c = getopt(argc, argv, "Ri")) != -1 ) {
+        switch (c) {
+            case 'R': opt_recursive = true; break;
+            case 'i': opt_insensitive = true; break;
+            default: usage(argv[0]); return EXIT_FAILURE;
+        }
+    }
 }
