@@ -50,7 +50,7 @@ static void write_all(int fd, const char* data, size_t len) {
             break;                        // bei echtem Fehler abbrechen
         }
         p += k;
-        n -= static_cast<size_t>(k);
+        n -= static_cast<size_t>(k);      // da ssize_t k "signed" ist, muss gecasted werden da sonst signed/unsigned mismatch
     }
 }
 
@@ -68,7 +68,7 @@ static void child_search(
     auto emit = [&](const fs::path& p) {
         string line = to_string(me) + ": " + original_name + ": ";
         try {
-            line += fs::absolute(p).string();    // BUGFIX: .string() korrekt anhängen
+            line += fs::absolute(p).string();    // Typo: .string() statt ,string() >_<
         } catch (...) {
             line += p.string();
         }
@@ -76,7 +76,7 @@ static void child_search(
         write_all(outfd, line.data(), line.size());
     };
 
-    std::error_code ec;
+    error_code ec;
     if (!fs::exists(root, ec) || !fs::is_directory(root, ec)) return;
 
     fs::directory_options opts = fs::directory_options::skip_permission_denied;
