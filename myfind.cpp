@@ -4,12 +4,12 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <fcntl.h>
+#include <system_error>
 
 #include <filesystem>
 #include <iostream>
 #include <vector>
 #include <string>
-#include <cstdio>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -37,7 +37,7 @@ static bool names_equal(const string& a, const string& b, bool insensitive) {
 }
 
 static void child_search(
-            const fs::path root,
+            const fs::path& root,
             const string& target_name,
             const string& original_name,
             bool recursive,
@@ -45,6 +45,50 @@ static void child_search(
             int outfd) {
     const pid_t me = getpid();
 
+    auto emit = [&](const fs::path& p) {
+        string line = to_string(me) + ": " + original_name + ": ";
+        try {
+            line += fs::absolute(p).string();
+        } catch (...) {
+            line += p.string();
+        }
+        line.push_back('\n');
+        write(outfd, line.data(), line.size());
+    };
+
+    error_code ec;
+    if (!fs::exists(root, ec) || !fs::is_directory(root, ec)) return;
+
+    fs::directory_options opts = fs::directory_options::skip_permission_denied;
+    try{
+        if (recursive) {
+            for (fs::recursive_directory_iterator it(root, opts, ec), end; it != end; it.increment(ec)) {
+                if (ec) {
+                    ec.clear();
+                    continue;
+                }
+
+                const fs::directory_entry& de = *it;
+                if(!de.is_directory(ec) &&
+                    names_equal(de.path().filename().string(), target_name, insensitive)) {
+                        emit(de.path());
+                    }
+            }
+        } else {
+            for (fs::directory_iterator it(root, opts, ec), end; it != end; it.increment(ec)) {
+                if (ec) {
+                    ec.clear();
+                    continue;
+                }
+
+                const fs::directory_entry& de = *it;
+                if (!de.is_directory(ec) && 
+                    names_equal(de.path().filename().string(), target_name, insensitive)) {
+                        emit(de.path());
+                    }
+            }
+        }
+    } catch ( ... ) {}
 }
 
 int main(int argc, char* argv[]) {
@@ -115,4 +159,85 @@ int main(int argc, char* argv[]) {
             cps[i].pid = pid;           // Lese-FD und PID in cps[i] storen
         }
     }
+
+    size_t remaining = cps.size();
+    vector<pollfd> pfds(cps.size());
+
+    while (remaining > 0) {
+        size_t idx = 0;
+        for (auto& cp : cps){
+            if (!cp.done) {
+                pfds[idx].fd = cp.rfd;
+                pfds[idx].events = POLLIN|POLLHUP|POLLERR;
+                pfds[idx].revents = 0;
+                idx++;
+            }
+        }
+    
+        if(idx == 0) break;
+
+        int ret = poll(pfds.data(), idx, 250);
+
+        if (ret < 0) {
+            if (errno == EINTR) continue;
+            perror("poll");
+            break;
+        }
+
+        size_t k = 0;
+        for (auto& cp : cps) {
+            if (cp.done) continue;
+            pollfd& p = pfds[k++];
+
+            if(p.revents & POLLIN) {
+                char buf[4096];
+                ssize_t n = read(cp.rfd, buf, sizeof(buf));
+
+                if (n > 0) {
+                    cp.buffer.append(buf, buf+n);
+                    size_t pos = 0;
+
+                    for(;;) {
+                        size_t nl = cp.buffer.find('\n', pos);
+                        if (nl == string::npos) break;
+                        string line = cp.buffer.substr(pos, nl - pos +1);
+                        fwrite(line.data(), 1, line.size(), stdout);
+                        pos = nl + 1;
+                    }
+                    cp.buffer.erase(0, pos);
+                } else if (n == 0) {
+                    if (!cp.buffer.empty()) {
+                        cp.buffer.push_back('\n');
+                        fwrite(cp.buffer.data(), 1, cp.buffer.size(), stdout);
+                        cp.buffer.clear();
+                    }
+                    close(cp.rfd);
+                    cp.done = true;
+                    --remaining;
+                } else { // n < 0
+                    if (errno == EINTR) {
+                        continue;
+                    }
+                    close(cp.rfd);
+                    cp.done = true;
+                    --remaining;
+                }
+            } else if (p.revents & (POLLHUP | POLLERR)) {
+                close(cp.rfd);
+                cp.done = true;
+                --remaining;
+            }
+        }
+
+        // reap finished childrem
+
+        for(;;) {
+            int status = 0;
+            pid_t w = waitpid(-1, &status, WNOHANG);
+            if (w <= 0) break;
+        }
+    }
+
+    while (waitpid(-1, nullptr, 0) > 0) {}
+    return 0;
 }
